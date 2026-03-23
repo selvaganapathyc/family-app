@@ -11,8 +11,8 @@ const provider = import.meta.env.VITE_AUTH_PROVIDER || 'supabase'
 
 const providers = {
   supabase: () => import('./providers/supabase.provider.js'),
-  // clerk:    () => import('./providers/clerk.provider.js'),
-  // custom:   () => import('./providers/custom.provider.js'),
+  backend:  () => import('./providers/backend.provider.js'),
+  // clerk:  () => import('./providers/clerk.provider.js'),
 }
 
 if (!providers[provider]) {
