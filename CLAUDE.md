@@ -9,12 +9,12 @@ A personal family management app for 4 members: Selva (parent), Udhaya (parent/w
 | Frontend | Vue 3, Vite, Pinia, Vue Router, Axios |
 | Backend | Python, FastAPI, Uvicorn |
 | Database | Supabase (PostgreSQL) |
-| Auth | Supabase Auth (ECC P-256 JWT signing) |
-| Hosting | Railway |
+| Auth | Supabase Auth — handled entirely by backend |
+| Hosting | Backend → Railway, Frontend → Vercel |
 
 ## Repository Structure
 ```
-personal-apps/
+family-app/
 ├── frontend/        # Vue 3 app
 ├── backend/         # FastAPI app
 ├── database/        # SQL migrations and seeds
@@ -22,12 +22,13 @@ personal-apps/
 │   │   ├── core/    # family_members table
 │   │   └── finance/ # transactions, budgets tables
 │   └── seeds/
+├── railway.toml     # Railway build config (points to backend/)
 ├── start-frontend.sh
 ├── start-backend.sh
 └── CLAUDE.md
 ```
 
-## Starting the App
+## Starting the App Locally
 ```bash
 ./start-backend.sh    # terminal 1 — runs on :8000
 ./start-frontend.sh   # terminal 2 — runs on :5173
@@ -35,8 +36,17 @@ personal-apps/
 
 ## Two Databases
 - **Dev**: `backend/.env.dev` — local development Supabase project
-- **Prod**: `backend/.env.prod` — production Supabase project
+- **Prod**: `backend/.env.prod` — production Supabase project (used by Railway)
 - Switch via `ENVIRONMENT=prod` env var when starting the backend
+
+## Deployment
+| Service | Platform | Config |
+|---|---|---|
+| Backend | Railway | `railway.toml` at repo root, root directory set to `backend/` in Railway dashboard |
+| Frontend | Vercel | Root directory set to `frontend/` in Vercel dashboard |
+
+**Railway env vars required:** `SUPABASE_URL`, `SUPABASE_KEY`, `ENVIRONMENT=prod`, `AUTH_PROVIDER=supabase`
+**Vercel env vars required:** `VITE_API_URL`, `VITE_AUTH_PROVIDER=backend`
 
 ## Module Architecture
 Each module is fully self-contained in both frontend and backend:
@@ -44,21 +54,30 @@ Each module is fully self-contained in both frontend and backend:
 - Backend: `app/modules/<module>/` has its own router, service, models, queries
 - Adding a new module = copy the finance folder structure, register in `main.py` and `router/index.js`
 
-## Auth Architecture (Decoupled)
-Auth is abstracted behind a provider pattern — the rest of the app never imports from Supabase directly.
-- Frontend entry point: `src/core/auth/index.js`
-- Backend entry point: `app/core/auth/__init__.py`
-- Active provider controlled by `VITE_AUTH_PROVIDER` (frontend) and `AUTH_PROVIDER` (backend) env vars
-- Current provider: `supabase`
-- To add a new provider: create a file in `providers/`, register it in the index — zero changes elsewhere
+## Auth Architecture
+Auth is fully handled by the backend. The frontend never talks to Supabase directly.
+
+```
+Frontend → POST /auth/login (email+password) → Backend → Supabase Auth → JWT token
+Frontend stores JWT in localStorage
+Frontend sends JWT as Bearer token on every API request
+Backend verifies JWT via Supabase on every protected route
+```
+
+- Frontend auth entry point: `src/core/auth/index.js` — active provider set by `VITE_AUTH_PROVIDER`
+- Current frontend provider: `backend` (`src/core/auth/providers/backend.provider.js`)
+- Backend auth endpoints: `POST /auth/login`, `POST /auth/logout`
+- Backend token verification: `app/core/auth/` — active provider set by `AUTH_PROVIDER`
+- Frontend requires NO Supabase credentials — only `VITE_API_URL` and `VITE_AUTH_PROVIDER`
 
 ## Database Access
 - Backend uses Supabase Python SDK over HTTP (not a direct PostgreSQL connection string)
 - Uses **service role key** (bypasses RLS) — never expose this to frontend
-- Frontend uses **anon/publishable key** for Supabase Auth only
+- Frontend has no database credentials — all data access goes through the backend API
 
 ## Key Design Decisions
-- Auth is decoupled via provider pattern — swap Supabase Auth for Clerk/custom with 1 env var change
+- Auth is decoupled via provider pattern on both frontend and backend — swap providers with 1 env var change
+- Frontend is completely database-agnostic — it only knows the backend API URL
 - DB is Supabase/PostgreSQL — migrating to another PostgreSQL (Neon, RDS) = rewrite `queries.py` per module only
-- MongoDB would require full rewrite of queries and schema — not planned
 - No SQLAlchemy — using Supabase SDK directly for simplicity
+- `vite.config.js` sets `build.target: 'esnext'` to support top-level await in auth provider loading
